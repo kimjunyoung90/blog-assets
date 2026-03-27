@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>@EventListener vs @TransactionalEventListener</title>
+<style>
+  body { font-family: sans-serif; background: #fff; color: #1a1a1a; padding: 24px; max-width: 900px; margin: 0 auto; }
+  .col-header { font-size: 13px; font-weight: 500; padding: 6px 12px; border-radius: 8px; text-align: center; margin-bottom: 12px; }
+  .bad-header  { background: #FCEBEB; border: 0.5px solid #A32D2D; color: #791F1F; }
+  .good-header { background: #E1F5EE; border: 0.5px solid #0F6E56; color: #085041; }
+  .lane { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+  .lane-label { font-size: 11px; font-weight: 500; color: #555; width: 60px; flex-shrink: 0; padding-top: 8px; line-height: 1.4; }
+  .track { flex: 1; height: 30px; background: #f5f5f2; border-radius: 6px; border: 0.5px solid #ddd; position: relative; }
+  .bar { position: absolute; top: 3px; height: 24px; border-radius: 5px; display: flex; align-items: center; padding-left: 6px; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; box-sizing: border-box; }
+  .bar-teal   { background: #E1F5EE; border: 0.5px solid #0F6E56; color: #085041; }
+  .bar-purple { background: #EEEDFE; border: 0.5px solid #534AB7; color: #3C3489; }
+  .bar-red    { background: #FCEBEB; border: 0.5px solid #A32D2D; color: #791F1F; }
+  .bar-wait   { background: #fef9ec; border: 0.5px solid #d4a000; color: #7a5800; }
+  .bar-gray   { background: #f5f5f2; border: 0.5px solid #ccc; color: #555; }
+  .tick-row { display: flex; margin-left: 68px; margin-bottom: 3px; }
+  .tick { flex: 1; font-size: 10px; color: #aaa; text-align: center; }
+  .result-box { border-radius: 8px; padding: 8px 12px; font-size: 12px; line-height: 1.6; margin-top: 6px; min-height: 40px; }
+  .result-danger  { background: #FCEBEB; color: #791F1F; border: 0.5px solid #A32D2D; }
+  .result-success { background: #EAF3DE; color: #27500A; border: 0.5px solid #3B6D11; }
+  .result-warn    { background: #fef9ec; color: #7a5800; border: 0.5px solid #d4a000; }
+  .result-info    { background: #E6F1FB; color: #0C447C; border: 0.5px solid #378ADD; }
+  .replay-btn { padding: 6px 20px; font-size: 13px; border-radius: 8px; border: 0.5px solid #ccc; background: transparent; color: #555; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div style="display:grid; grid-template-columns:1fr 0.5px 1fr; gap:0 12px; align-items:start;">
+
+  <div>
+    <div class="col-header bad-header">@EventListener</div>
+    <div class="tick-row" id="ticks-L"></div>
+    <div class="lane"><div class="lane-label">서비스</div><div class="track" id="L-svc"></div></div>
+    <div class="lane"><div class="lane-label">DB</div><div class="track" id="L-db"></div></div>
+    <div class="lane"><div class="lane-label">리스너</div><div class="track" id="L-lst"></div></div>
+    <div class="result-box result-info" id="L-msg"></div>
+  </div>
+
+  <div style="background:#ddd; height:100%;"></div>
+
+  <div>
+    <div class="col-header good-header">@TransactionalEventListener</div>
+    <div class="tick-row" id="ticks-R"></div>
+    <div class="lane"><div class="lane-label">서비스</div><div class="track" id="R-svc"></div></div>
+    <div class="lane"><div class="lane-label">DB</div><div class="track" id="R-db"></div></div>
+    <div class="lane"><div class="lane-label">리스너</div><div class="track" id="R-lst"></div></div>
+    <div class="result-box result-info" id="R-msg"></div>
+  </div>
+
+</div>
+
+<div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+  <button class="replay-btn" onclick="startAnim()">다시 재생</button>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#E1F5EE;border:0.5px solid #0F6E56;"></div>서비스 로직</div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#EEEDFE;border:0.5px solid #534AB7;"></div>리스너 실행</div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#fef9ec;border:0.5px solid #d4a000;"></div>보류/대기</div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#FCEBEB;border:0.5px solid #A32D2D;"></div>롤백</div>
+  </div>
+</div>
+
+<script>
+const TOTAL = 14;
+let raf = null, startTime = null;
+
+const LF = [
+  { id:'L-svc', s:0,   e:2.5, cls:'bar-teal',   t:'서비스 로직' },
+  { id:'L-db',  s:0,   e:8,   cls:'bar-wait',   t:'미커밋 트랜잭션' },
+  { id:'L-svc', s:2.5, e:5,   cls:'bar-teal',   t:'publishEvent()' },
+  { id:'L-lst', s:5,   e:7.5, cls:'bar-purple', t:'이메일 발송 완료 ✉' },
+  { id:'L-svc', s:5,   e:7.5, cls:'bar-wait',   t:'대기' },
+  { id:'L-svc', s:7.5, e:8,   cls:'bar-red',    t:'예외 → 롤백' },
+  { id:'L-db',  s:8,   e:9.5, cls:'bar-red',    t:'ROLLBACK' },
+];
+
+const RF = [
+  { id:'R-svc', s:0,   e:2.5, cls:'bar-teal',   t:'서비스 로직' },
+  { id:'R-db',  s:0,   e:8,   cls:'bar-wait',   t:'미커밋 트랜잭션' },
+  { id:'R-svc', s:2.5, e:5,   cls:'bar-teal',   t:'publishEvent()' },
+  { id:'R-lst', s:5,   e:8,   cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
+  { id:'R-svc', s:5,   e:8,   cls:'bar-teal',   t:'로직 계속 진행' },
+  { id:'R-svc', s:8,   e:9.5, cls:'bar-red',    t:'예외 → 롤백' },
+  { id:'R-db',  s:8,   e:9.5, cls:'bar-red',    t:'ROLLBACK' },
+];
+
+const LM = [
+  [0,   { cls:'result-info',   text:'트랜잭션 시작.' }],
+  [2.5, { cls:'result-info',   text:'publishEvent() 호출 — 리스너 즉시 실행.' }],
+  [5,   { cls:'result-warn',   text:'이메일 발송 완료. DB는 아직 미커밋 상태.' }],
+  [7.5, { cls:'result-danger', text:'예외 발생 → 롤백 시작.' }],
+  [8,   { cls:'result-danger', text:'DB 롤백 완료. 이메일은 이미 발송됨 → 데이터 불일치.' }],
+];
+
+const RM = [
+  [0,   { cls:'result-info',    text:'트랜잭션 시작.' }],
+  [2.5, { cls:'result-info',    text:'publishEvent() 호출 — 리스너는 커밋 전까지 보류.' }],
+  [5,   { cls:'result-info',    text:'이벤트 보류 중. 이메일 아직 발송 안 됨.' }],
+  [8,   { cls:'result-warn',    text:'예외 발생 → 롤백. 리스너는 여전히 보류 상태.' }],
+  [9.5, { cls:'result-success', text:'롤백 완료. 커밋 조건 미충족 → 리스너 취소. 이메일 발송 안 됨. 일관성 유지.' }],
+];
+
+function pct(v) { return (v/TOTAL*100).toFixed(2)+'%'; }
+function pw(s,e) { return ((e-s)/TOTAL*100).toFixed(2)+'%'; }
+
+function buildTicks(id) {
+  const row = document.getElementById(id);
+  row.innerHTML = '';
+  for (let i=0; i<=TOTAL; i++) {
+    const t = document.createElement('div');
+    t.className = 'tick';
+    t.textContent = i===0 ? '0s' : i%2===0 ? i+'s' : '';
+    row.appendChild(t);
+  }
+}
+
+function startAnim() {
+  if (raf) cancelAnimationFrame(raf);
+  ['L-svc','L-db','L-lst','R-svc','R-db','R-lst'].forEach(id => {
+    document.getElementById(id).innerHTML = '';
+  });
+  ['L-msg','R-msg'].forEach(id => {
+    const b = document.getElementById(id);
+    b.textContent = ''; b.className = 'result-box result-info';
+  });
+  buildTicks('ticks-L');
+  buildTicks('ticks-R');
+  startTime = null;
+  const bars = {};
+  const allF = [...LF, ...RF];
+  const msgMap = {'L-msg': LM, 'R-msg': RM};
+
+  function step(ts) {
+    if (!startTime) startTime = ts;
+    const elapsed = Math.min((ts-startTime)/800, TOTAL);
+
+    allF.forEach((f,i) => {
+      if (elapsed < f.s) return;
+      const ec = Math.min(elapsed, f.e);
+      const track = document.getElementById(f.id);
+      if (!track) return;
+      if (!bars[i]) {
+        const el = document.createElement('div');
+        el.className = 'bar '+f.cls;
+        el.style.left = pct(f.s);
+        el.style.width = '0%';
+        el.textContent = f.t;
+        track.appendChild(el);
+        bars[i] = el;
+      }
+      bars[i].style.width = pw(f.s, ec);
+    });
+
+    Object.entries(msgMap).forEach(([boxId, msgs]) => {
+      let last = null;
+      msgs.forEach(([t,m]) => { if (elapsed >= t) last = m; });
+      if (last) {
+        const box = document.getElementById(boxId);
+        box.textContent = last.text;
+        box.className = 'result-box '+last.cls;
+      }
+    });
+
+    if (elapsed < TOTAL) raf = requestAnimationFrame(step);
+  }
+  raf = requestAnimationFrame(step);
+}
+
+startAnim();
+</script>
+</body>
+</html>
