@@ -11,8 +11,8 @@
   .good-header { background: #E1F5EE; border: 0.5px solid #0F6E56; color: #085041; }
   .lane { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
   .lane-label { font-size: 11px; font-weight: 500; color: #555; width: 60px; flex-shrink: 0; padding-top: 8px; line-height: 1.4; }
-  .track { flex: 1; height: 30px; background: #f5f5f2; border-radius: 6px; border: 0.5px solid #ddd; position: relative; }
-  .bar { position: absolute; top: 3px; height: 24px; border-radius: 5px; display: flex; align-items: center; padding-left: 6px; padding-right: 6px; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; box-sizing: border-box; }
+  .track { flex: 1; height: 30px; background: #f5f5f2; border-radius: 6px; border: 0.5px solid #ddd; position: relative; overflow: visible; }
+  .bar { position: absolute; top: 3px; height: 24px; border-radius: 5px; display: flex; align-items: center; justify-content: center; padding: 0 6px; font-size: 10px; font-weight: 500; white-space: nowrap; overflow: hidden; box-sizing: border-box; }
   .bar-teal   { background: #E1F5EE; border: 0.5px solid #0F6E56; color: #085041; }
   .bar-purple { background: #EEEDFE; border: 0.5px solid #534AB7; color: #3C3489; }
   .bar-red    { background: #FCEBEB; border: 0.5px solid #A32D2D; color: #791F1F; }
@@ -35,7 +35,7 @@
   <div>
     <div class="col-header bad-header">@EventListener</div>
     <div class="tick-row" id="ticks-L"></div>
-    <div class="lane"><div class="lane-label">서비스</div><div class="track" id="L-svc"></div></div>
+    <div class="lane"><div class="lane-label">서비스 계층</div><div class="track" id="L-svc"></div></div>
     <div class="lane"><div class="lane-label">DB</div><div class="track" id="L-db"></div></div>
     <div class="lane"><div class="lane-label">리스너</div><div class="track" id="L-lst"></div></div>
     <div class="result-box result-info" id="L-msg"></div>
@@ -46,7 +46,7 @@
   <div>
     <div class="col-header good-header">@TransactionalEventListener</div>
     <div class="tick-row" id="ticks-R"></div>
-    <div class="lane"><div class="lane-label">서비스</div><div class="track" id="R-svc"></div></div>
+    <div class="lane"><div class="lane-label">서비스 계층</div><div class="track" id="R-svc"></div></div>
     <div class="lane"><div class="lane-label">DB</div><div class="track" id="R-db"></div></div>
     <div class="lane"><div class="lane-label">리스너</div><div class="track" id="R-lst"></div></div>
     <div class="result-box result-info" id="R-msg"></div>
@@ -57,7 +57,7 @@
 <div style="margin-top:14px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
   <button class="replay-btn" onclick="startAnim()">다시 재생</button>
   <div style="display:flex;gap:10px;flex-wrap:wrap;">
-    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#E1F5EE;border:0.5px solid #0F6E56;"></div>서비스 로직</div>
+    <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#E1F5EE;border:0.5px solid #0F6E56;"></div>비즈니스 로직</div>
     <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#EEEDFE;border:0.5px solid #534AB7;"></div>리스너 실행</div>
     <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#fef9ec;border:0.5px solid #d4a000;"></div>보류/대기</div>
     <div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#555;"><div style="width:10px;height:10px;border-radius:2px;background:#FCEBEB;border:0.5px solid #A32D2D;"></div>롤백</div>
@@ -69,7 +69,7 @@ const TOTAL = 18;
 let raf = null, startTime = null;
 
 const LF = [
-  { id:'L-svc', s:0,   e:3,   cls:'bar-teal',   t:'서비스 로직' },
+  { id:'L-svc', s:0,   e:3,   cls:'bar-teal',   t:'비즈니스 로직' },
   { id:'L-db',  s:0,   e:14,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
   { id:'L-svc', s:3,   e:7,   cls:'bar-teal',   t:'publishEvent()' },
   { id:'L-lst', s:7,   e:11,  cls:'bar-purple', t:'이메일 발송 완료 ✉' },
@@ -79,7 +79,7 @@ const LF = [
 ];
 
 const RF = [
-  { id:'R-svc', s:0,   e:3,   cls:'bar-teal',   t:'서비스 로직' },
+  { id:'R-svc', s:0,   e:3,   cls:'bar-teal',   t:'비즈니스 로직' },
   { id:'R-db',  s:0,   e:14,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
   { id:'R-svc', s:3,   e:7,   cls:'bar-teal',   t:'publishEvent()' },
   { id:'R-lst', s:7,   e:14,  cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
@@ -134,6 +134,20 @@ function startAnim() {
   const allF = [...LF, ...RF];
   const msgMap = {'L-msg': LM, 'R-msg': RM};
 
+  // 같은 트랙 내 다음 바까지의 최대 허용 단위 계산
+  const trackGroups = {};
+  allF.forEach((f, i) => {
+    if (!trackGroups[f.id]) trackGroups[f.id] = [];
+    trackGroups[f.id].push({ s: f.s, idx: i });
+  });
+  Object.values(trackGroups).forEach(arr => {
+    arr.sort((a, b) => a.s - b.s);
+    for (let j = 0; j < arr.length; j++) {
+      const next = arr[j + 1];
+      allF[arr[j].idx]._maxUnits = next ? (next.s - arr[j].s) : (TOTAL - arr[j].s);
+    }
+  });
+
   function step(ts) {
     if (!startTime) startTime = ts;
     const elapsed = Math.min((ts-startTime)/800, TOTAL);
@@ -147,12 +161,17 @@ function startAnim() {
         const el = document.createElement('div');
         el.className = 'bar '+f.cls;
         el.style.left = pct(f.s);
-        el.style.width = '0%';
+        el.style.width = 'auto';
         el.textContent = f.t;
         track.appendChild(el);
+        el._minW = el.offsetWidth;
+        el.style.width = '0px';
         bars[i] = el;
       }
-      bars[i].style.width = pw(f.s, ec);
+      const trackW = track.clientWidth;
+      const timeW = trackW * (ec - f.s) / TOTAL;
+      const maxW = trackW * f._maxUnits / TOTAL;
+      bars[i].style.width = Math.min(Math.max(timeW, bars[i]._minW), maxW) + 'px';
     });
 
     Object.entries(msgMap).forEach(([boxId, msgs]) => {
