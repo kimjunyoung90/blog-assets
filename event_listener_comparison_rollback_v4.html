@@ -65,43 +65,43 @@
 </div>
 
 <script>
-const TOTAL = 18;
+const TOTAL = 16;
 let raf = null, startTime = null;
 
 const LF = [
-  { id:'L-svc', s:0,   e:3,   cls:'bar-teal',   t:'비즈니스 로직' },
-  { id:'L-db',  s:0,   e:14,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
-  { id:'L-svc', s:3,   e:7,   cls:'bar-teal',   t:'publishEvent()' },
-  { id:'L-lst', s:7,   e:11,  cls:'bar-purple', t:'이메일 발송 완료 ✉' },
-  { id:'L-svc', s:7,   e:11,  cls:'bar-wait',   t:'대기' },
-  { id:'L-svc', s:11,  e:14,  cls:'bar-red',    t:'예외 → 롤백' },
-  { id:'L-db',  s:14,  e:17,  cls:'bar-red',    t:'ROLLBACK' },
+  { id:'L-svc', s:0,   e:4,   cls:'bar-teal',   t:'비즈니스 로직' },
+  { id:'L-db',  s:0,   e:13,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
+  { id:'L-svc', s:4,   e:6,   cls:'bar-teal',   t:'event()' },
+  { id:'L-lst', s:6,   e:10,  cls:'bar-purple', t:'이메일 발송 완료 ✉' },
+  { id:'L-svc', s:6,   e:10,  cls:'bar-wait',   t:'대기' },
+  { id:'L-svc', s:10,  e:13,  cls:'bar-red',    t:'예외 → 롤백' },
+  { id:'L-db',  s:13,  e:16,  cls:'bar-red',    t:'ROLLBACK' },
 ];
 
 const RF = [
-  { id:'R-svc', s:0,   e:3,   cls:'bar-teal',   t:'비즈니스 로직' },
-  { id:'R-db',  s:0,   e:14,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
-  { id:'R-svc', s:3,   e:7,   cls:'bar-teal',   t:'publishEvent()' },
-  { id:'R-lst', s:7,   e:14,  cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
-  { id:'R-svc', s:7,   e:11,  cls:'bar-teal',   t:'로직 계속 진행' },
-  { id:'R-svc', s:11,  e:14,  cls:'bar-red',    t:'예외 → 롤백' },
-  { id:'R-db',  s:14,  e:17,  cls:'bar-red',    t:'ROLLBACK' },
+  { id:'R-svc', s:0,   e:4,   cls:'bar-teal',   t:'비즈니스 로직' },
+  { id:'R-db',  s:0,   e:13,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
+  { id:'R-svc', s:4,   e:6,   cls:'bar-teal',   t:'event()' },
+  { id:'R-lst', s:6,   e:13,  cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
+  { id:'R-svc', s:6,   e:10,  cls:'bar-teal',   t:'로직 계속 진행' },
+  { id:'R-svc', s:10,  e:13,  cls:'bar-red',    t:'예외 → 롤백' },
+  { id:'R-db',  s:13,  e:16,  cls:'bar-red',    t:'ROLLBACK' },
 ];
 
 const LM = [
   [0,   { cls:'result-info',   text:'트랜잭션 시작.' }],
-  [3,   { cls:'result-info',   text:'publishEvent() 호출 — 리스너 즉시 실행.' }],
-  [7,   { cls:'result-warn',   text:'이메일 발송 완료. DB는 아직 미커밋 상태.' }],
-  [11,  { cls:'result-danger', text:'예외 발생 → 롤백 시작.' }],
-  [14,  { cls:'result-danger', text:'DB 롤백 완료. 이메일은 이미 발송됨 → 데이터 불일치.' }],
+  [4,   { cls:'result-info',   text:'event() 호출 — 리스너 즉시 실행.' }],
+  [6,   { cls:'result-warn',   text:'이메일 발송 완료. DB는 아직 미커밋 상태.' }],
+  [10,  { cls:'result-danger', text:'예외 발생 → 롤백 시작.' }],
+  [13,  { cls:'result-danger', text:'DB 롤백 완료. 이메일은 이미 발송됨 → 데이터 불일치.' }],
 ];
 
 const RM = [
   [0,   { cls:'result-info',    text:'트랜잭션 시작.' }],
-  [3,   { cls:'result-info',    text:'publishEvent() 호출 — 리스너는 커밋 전까지 보류.' }],
-  [7,   { cls:'result-info',    text:'이벤트 보류 중. 이메일 아직 발송 안 됨.' }],
-  [14,  { cls:'result-warn',    text:'예외 발생 → 롤백. 리스너는 여전히 보류 상태.' }],
-  [17,  { cls:'result-success', text:'롤백 완료. 커밋 조건 미충족 → 리스너 취소. 이메일 발송 안 됨. 일관성 유지.' }],
+  [4,   { cls:'result-info',    text:'event() 호출 — 리스너는 커밋 전까지 보류.' }],
+  [6,   { cls:'result-info',    text:'이벤트 보류 중. 이메일 아직 발송 안 됨.' }],
+  [13,  { cls:'result-warn',    text:'예외 발생 → 롤백. 리스너는 여전히 보류 상태.' }],
+  [16,  { cls:'result-success', text:'롤백 완료. 커밋 조건 미충족 → 리스너 취소. 이메일 발송 안 됨. 일관성 유지.' }],
 ];
 
 function pct(v) { return (v/TOTAL*100).toFixed(2)+'%'; }
