@@ -69,13 +69,14 @@ const SYNC_FRAMES = [
   { lane:'pub', start:4,   end:7,   cls:'bar-wait',   label:'대기 중 (블로킹)' },
   { lane:'lst', start:4,   end:7,   cls:'bar-purple', label:'이메일 발송' },
   { lane:'pub', start:7,   end:9,   cls:'bar-teal',   label:'응답 반환' },
-  { lane:'pub', start:9,   end:9.8, cls:'bar-done',   label:'완료' },
+  { lane:'pub', start:9,   end:10,  cls:'bar-done',   label:'완료' },
 ];
 
 const ASYNC_FRAMES = [
   { lane:'pub',  start:0,   end:2.5, cls:'bar-teal',   label:'비즈니스 로직' },
   { lane:'pub',  start:2.5, end:4,   cls:'bar-teal',   label:'event()' },
-  { lane:'pool', start:4,   end:7.5, cls:'bar-purple', label:'이메일 발송 (별도 스레드)' },
+  { lane:'lst',  start:4,   end:5,   cls:'bar-purple', label:'스레드풀 위임' },
+  { lane:'pool', start:5,   end:8,   cls:'bar-purple', label:'이메일 발송 (별도 스레드)' },
   { lane:'pub',  start:4,   end:6,   cls:'bar-teal',   label:'응답 반환' },
   { lane:'pub',  start:6,   end:6.8, cls:'bar-done',   label:'완료' },
 ];
@@ -90,10 +91,11 @@ const SYNC_MSGS = [
 
 const ASYNC_MSGS = [
   [0,   '서비스 메서드가 실행됩니다.'],
-  [2.5, 'event() 호출 — 스레드풀에 작업을 위임합니다.'],
-  [4,   'Publisher 스레드는 즉시 다음 코드로 진행합니다. 블로킹 없음.'],
-  [6,   'Publisher는 이미 응답 반환 완료. 리스너는 별도 스레드에서 계속 실행 중.'],
-  [7.5, '리스너 완료. Publisher와 무관하게 끝납니다.'],
+  [2.5, 'event() 호출 — 리스너에게 이벤트를 전달합니다.'],
+  [4,   '리스너가 호출되지만, @Async이므로 스레드풀에 작업을 위임합니다.'],
+  [5,   'Publisher 스레드는 즉시 다음 코드로 진행합니다. 블로킹 없음.'],
+  [6,   'Publisher는 이미 응답 반환 완료. 이메일 발송은 별도 스레드에서 계속 실행 중.'],
+  [8,   '리스너 완료. Publisher와 무관하게 끝납니다.'],
 ];
 
 function pct(v) { return (v / TOTAL * 100).toFixed(2) + '%'; }
