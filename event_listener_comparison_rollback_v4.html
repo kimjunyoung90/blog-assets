@@ -18,6 +18,7 @@
   .bar-red    { background: #FCEBEB; border: 0.5px solid #A32D2D; color: #791F1F; }
   .bar-wait   { background: #fef9ec; border: 0.5px solid #d4a000; color: #7a5800; }
   .bar-gray   { background: #f5f5f2; border: 0.5px solid #ccc; color: #555; }
+  .bar-cancel { background: #FCEBEB; border: 0.5px solid #A32D2D; color: #791F1F; text-decoration: line-through; opacity: 0.6; }
   .tick-row { display: flex; margin-left: 68px; margin-bottom: 3px; }
   .tick { flex: 1; font-size: 10px; color: #aaa; text-align: center; }
   .result-box { border-radius: 8px; padding: 8px 12px; font-size: 12px; line-height: 1.6; margin-top: 6px; }
@@ -80,12 +81,11 @@ const LF = [
 
 const RF = [
   { id:'R-svc', s:0,   e:4,   cls:'bar-teal',   t:'비즈니스 로직' },
-  { id:'R-db',  s:0,   e:13,  cls:'bar-wait',   t:'미커밋 트랜잭션' },
+  { id:'R-db',  s:0,   e:9,   cls:'bar-wait',   t:'미커밋 트랜잭션' },
   { id:'R-svc', s:4,   e:6,   cls:'bar-teal',   t:'event()' },
-  { id:'R-lst', s:6,   e:13,  cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
-  { id:'R-svc', s:6,   e:10,  cls:'bar-teal',   t:'로직 계속 진행' },
-  { id:'R-svc', s:10,  e:13,  cls:'bar-red',    t:'예외 → 롤백' },
-  { id:'R-db',  s:13,  e:16,  cls:'bar-red',    t:'ROLLBACK' },
+  { id:'R-lst', s:6,   e:9,   cls:'bar-gray',   t:'보류 중 (커밋 대기)' },
+  { id:'R-svc', s:6,   e:9,   cls:'bar-red',    t:'예외 → 롤백' },
+  { id:'R-db',  s:9,   e:12,  cls:'bar-red',    t:'ROLLBACK' },
 ];
 
 const LM = [
@@ -100,8 +100,8 @@ const RM = [
   [0,   { cls:'result-info',    text:'트랜잭션 시작.' }],
   [4,   { cls:'result-info',    text:'event() 호출 — 리스너는 커밋 전까지 보류.' }],
   [6,   { cls:'result-info',    text:'이벤트 보류 중. 이메일 아직 발송 안 됨.' }],
-  [13,  { cls:'result-warn',    text:'예외 발생 → 롤백. 리스너는 여전히 보류 상태.' }],
-  [16,  { cls:'result-success', text:'롤백 완료. 커밋 조건 미충족 → 리스너 취소. 이메일 발송 안 됨. 일관성 유지.' }],
+  [6,   { cls:'result-warn',    text:'예외 발생 → 롤백. 리스너는 여전히 보류 상태.' }],
+  [9,   { cls:'result-success', text:'롤백 완료. 커밋 조건 미충족 → 리스너 취소. 이메일 발송 안 됨. 일관성 유지.' }],
 ];
 
 function pct(v) { return (v/TOTAL*100).toFixed(2)+'%'; }
@@ -172,6 +172,12 @@ function startAnim() {
       const timeW = trackW * (ec - f.s) / TOTAL;
       const maxW = trackW * f._maxUnits / TOTAL;
       bars[i].style.width = Math.min(Math.max(timeW, bars[i]._minW), maxW) + 'px';
+
+      // RF 리스너: ROLLBACK 시점에 취소 스타일로 변경
+      if (f.id === 'R-lst' && f.cls === 'bar-gray' && elapsed >= 9) {
+        bars[i].className = 'bar bar-cancel';
+        bars[i].textContent = '실행 취소';
+      }
     });
 
     Object.entries(msgMap).forEach(([boxId, msgs]) => {
