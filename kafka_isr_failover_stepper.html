@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kafka ISR 장애 시나리오 단계별 시각화</title>
+<style>
+:root{
+  --color-background-primary:#fff;
+  --color-background-secondary:#f5f5f2;
+  --color-text-primary:#1a1a1a;
+  --color-text-secondary:#555;
+  --color-text-tertiary:#aaa;
+  --color-border-secondary:#ddd;
+  --color-border-tertiary:#eee;
+  --color-background-info:#E6F1FB;
+  --color-text-info:#0C447C;
+  --color-border-info:#378ADD;
+  --color-background-success:#E1F5EE;
+  --color-text-success:#085041;
+  --color-border-success:#0F6E56;
+  --color-background-warning:#fef9ec;
+  --color-text-warning:#7a5800;
+  --color-border-warning:#cc9c00;
+  --color-background-danger:#FCEBEB;
+  --color-text-danger:#791F1F;
+  --color-border-danger:#c44747;
+  --border-radius-md:6px;
+  --border-radius-lg:8px;
+}
+body{font-family:sans-serif;background:var(--color-background-primary);color:var(--color-text-primary);padding:24px;max-width:900px;margin:0 auto}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.step-pill{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--color-background-secondary);color:var(--color-text-secondary);font-size:12px;font-weight:500;transition:all .2s}
+.step-pill.active{background:var(--color-text-info);color:var(--color-background-primary)}
+.step-pill.done{background:var(--color-background-success);color:var(--color-text-success)}
+
+.btn-nav{padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-primary);font-size:13px;cursor:pointer;transition:all .15s}
+.btn-nav:hover:not(:disabled){background:var(--color-background-secondary)}
+.btn-nav:disabled{opacity:.4;cursor:not-allowed}
+
+.producer-box{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--border-radius-md);font-size:13px;transition:all .3s;border:0.5px solid transparent}
+.producer-box.ok{background:var(--color-background-success);color:var(--color-text-success);border-color:var(--color-border-success)}
+.producer-box.reject{background:var(--color-background-danger);color:var(--color-text-danger);border-color:var(--color-border-danger)}
+.producer-box .arrow{flex:1}
+
+.broker-row{display:flex;align-items:center;gap:10px;margin:8px 0;padding:10px 14px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:0.5px solid transparent;transition:all .3s}
+.broker-row.ok{background:var(--color-background-success);border-color:var(--color-border-success);color:var(--color-text-success)}
+.broker-row.warn{background:var(--color-background-warning);border-color:var(--color-border-warning);color:var(--color-text-warning)}
+.broker-row.danger{background:var(--color-background-danger);border-color:var(--color-border-danger);color:var(--color-text-danger);opacity:.85}
+.broker-row.leader .role{font-weight:700}
+
+.broker-info{flex:1;display:flex;flex-direction:column;gap:2px}
+.broker-info .role{font-weight:500;font-size:13px;display:flex;align-items:center;gap:6px}
+.broker-info .label{font-size:12px;opacity:.85}
+
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot-ok{background:var(--color-text-success)}
+.dot-warn{background:var(--color-text-warning)}
+.dot-danger{background:var(--color-text-danger)}
+
+.isr-badge{font-size:11px;padding:3px 10px;border-radius:10px;font-weight:500;white-space:nowrap}
+.isr-badge.in{background:var(--color-background-info);color:var(--color-text-info)}
+.isr-badge.out{background:var(--color-background-secondary);color:var(--color-text-tertiary)}
+
+.summary-box{margin-top:14px;padding:12px 14px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13px}
+.summary-box .isr-list{font-weight:500;color:var(--color-text-primary)}
+.summary-box .insync-tag{padding:3px 10px;border-radius:10px;font-size:12px;font-weight:500;white-space:nowrap}
+.summary-box .insync-tag.ok{background:var(--color-background-success);color:var(--color-text-success)}
+.summary-box .insync-tag.bad{background:var(--color-background-danger);color:var(--color-text-danger)}
+</style>
+</head>
+<body>
+<h2 class="sr-only">Kafka ISR 장애 시나리오 단계별 시각화</h2>
+
+<div style="padding:1rem 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="step-pill" data-step="1">1</span>
+      <span class="step-pill" data-step="2">2</span>
+      <span class="step-pill" data-step="3">3</span>
+      <span class="step-pill" data-step="4">4</span>
+      <span class="step-pill" data-step="5">5</span>
+    </div>
+    <span id="step-title" style="font-size:14px;font-weight:500;color:var(--color-text-primary)"></span>
+  </div>
+
+  <div id="producer-area" style="margin-bottom:1.25rem;min-height:48px"></div>
+
+  <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem">
+    <div class="broker-row" id="row-b1">
+      <div class="broker-info">
+        <span class="role"><span class="dot" id="b1-dot"></span><span id="b1-role">Leader</span></span>
+        <span class="label" id="b1-label">Broker 1 · 정상</span>
+      </div>
+      <span class="isr-badge" id="b1-isr">in ISR</span>
+    </div>
+    <div class="broker-row" id="row-b2">
+      <div class="broker-info">
+        <span class="role"><span class="dot" id="b2-dot"></span><span id="b2-role">Follower</span></span>
+        <span class="label" id="b2-label">Broker 2 · 정상</span>
+      </div>
+      <span class="isr-badge" id="b2-isr">in ISR</span>
+    </div>
+    <div class="broker-row" id="row-b3">
+      <div class="broker-info">
+        <span class="role"><span class="dot" id="b3-dot"></span><span id="b3-role">Follower</span></span>
+        <span class="label" id="b3-label">Broker 3 · 정상</span>
+      </div>
+      <span class="isr-badge" id="b3-isr">in ISR</span>
+    </div>
+
+    <div class="summary-box">
+      <div style="display:flex;align-items:center;gap:8px;color:var(--color-text-secondary);flex-wrap:wrap">
+        <span>ISR:</span>
+        <span class="isr-list" id="isr-list">[B1, B2, B3]</span>
+        <span style="color:var(--color-text-tertiary)">·</span>
+        <span>크기 <span id="isr-size">3</span></span>
+      </div>
+      <span class="insync-tag" id="insync-tag">min.insync=2 → 3≥2 만족 ✓</span>
+    </div>
+  </div>
+
+  <div id="explain" style="margin-top:1rem;padding:12px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);font-size:13px;line-height:1.65;color:var(--color-text-primary);min-height:84px"></div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">
+    <button class="btn-nav" id="prev-btn">← 이전</button>
+    <span style="font-size:12px;color:var(--color-text-tertiary)" id="step-counter">1 / 5</span>
+    <button class="btn-nav" id="next-btn">다음 →</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const steps = [
+    {
+      title: "T=0 · 모두 정상",
+      b1: { role: "Leader", status: "ok", inIsr: true, label: "Broker 1 · 정상" },
+      b2: { role: "Follower", status: "ok", inIsr: true, label: "Broker 2 · 정상" },
+      b3: { role: "Follower", status: "ok", inIsr: true, label: "Broker 3 · 정상" },
+      isr: ["B1", "B2", "B3"],
+      canWrite: true,
+      producerMsg: "→ Leader (B1) → ISR 전원 복제 완료 → ✓ ack 반환",
+      explain: "세 브로커 모두 정상 동작 중. ISR={B1[L], B2, B3}로 크기 3, min.insync.replicas=2를 여유 있게 만족합니다. Producer의 acks=all 쓰기는 ISR 전원이 메시지를 받은 후 성공 응답을 받습니다. 이 상태에서는 어느 브로커 1대가 죽어도 ISR이 2로 줄어들 뿐 쓰기가 계속 가능합니다."
+    },
+    {
+      title: "T=40s · B3 ISR 제외 (GC pause 30초 초과)",
+      b1: { role: "Leader", status: "ok", inIsr: true, label: "Broker 1 · 정상" },
+      b2: { role: "Follower", status: "ok", inIsr: true, label: "Broker 2 · 정상" },
+      b3: { role: "Follower", status: "warn", inIsr: false, label: "Broker 3 · GC pause (30초 초과)" },
+      isr: ["B1", "B2"],
+      canWrite: true,
+      producerMsg: "→ Leader (B1) → ISR={B1, B2}만 복제 → ✓ ack 반환",
+      explain: "T=10s에 B3에서 GC pause가 시작되어 fetch 요청이 끊긴 지 30초가 지났습니다. Leader는 lastCaughtUpTime이 30초(replica.lag.time.max.ms) 초과되었음을 감지하고 B3를 ISR에서 자동 제외합니다. ISR={B1[L], B2} 크기 2 — 여전히 min.insync=2를 만족하므로 쓰기는 정상 동작. '느린 한 대를 버려서 빠른 다수를 살리는' Kafka의 전략입니다."
+    },
+    {
+      title: "T=50s · B2 다운 → ISR 부족, 쓰기 거부",
+      b1: { role: "Leader", status: "ok", inIsr: true, label: "Broker 1 · 정상 (단독)" },
+      b2: { role: "Follower", status: "danger", inIsr: false, label: "Broker 2 · 다운" },
+      b3: { role: "Follower", status: "warn", inIsr: false, label: "Broker 3 · GC pause 지속" },
+      isr: ["B1"],
+      canWrite: false,
+      producerMsg: "→ Leader (B1) → ISR 크기=1 < min.insync=2 → ❌ NotEnoughReplicasException",
+      explain: "B2가 갑자기 다운되며 ISR={B1[L]}로 크기 1이 됩니다. min.insync.replicas=2를 만족하지 못하므로 Producer의 acks=all 쓰기가 NotEnoughReplicasException으로 거부됩니다. 가용성을 일시적으로 희생하더라도 데이터 안전성을 우선하는 CP(Consistency + Partition tolerance) 시스템의 핵심 동작입니다."
+    },
+    {
+      title: "T=85s · B3 회복 + ISR 재합류 → 쓰기 재개",
+      b1: { role: "Leader", status: "ok", inIsr: true, label: "Broker 1 · 정상" },
+      b2: { role: "Follower", status: "danger", inIsr: false, label: "Broker 2 · 다운 (복구 대기)" },
+      b3: { role: "Follower", status: "ok", inIsr: true, label: "Broker 3 · 회복 + 재합류" },
+      isr: ["B1", "B3"],
+      canWrite: true,
+      producerMsg: "→ Leader (B1) → ISR={B1, B3} 복제 완료 → ✓ ack 반환",
+      explain: "T=80s에 B3의 GC가 끝나고 leader를 따라잡기 시작합니다. T=85s에 lastCaughtUpTime이 갱신되며 ISR에 자동 재합류 → ISR={B1[L], B3} 크기 2. min.insync=2를 다시 만족하므로 쓰기가 재개됩니다. ISR은 동적이라 follower가 회복되면 운영자 개입 없이 자동으로 다시 합류 가능합니다."
+    },
+    {
+      title: "T=90s · Leader B1 다운 → B3가 새 Leader",
+      b1: { role: "Down", status: "danger", inIsr: false, label: "Broker 1 · 다운" },
+      b2: { role: "Follower", status: "danger", inIsr: false, label: "Broker 2 · 다운" },
+      b3: { role: "Leader", status: "ok", inIsr: true, label: "Broker 3 · 새 Leader (Controller가 선출)" },
+      isr: ["B3"],
+      canWrite: false,
+      producerMsg: "→ 새 Leader (B3) → ISR 크기=1 < min.insync=2 → ❌ 쓰기 거부",
+      explain: "Leader인 B1까지 다운. Controller가 ISR={B3} 안에서 새 리더로 B3를 선출합니다 (ISR 안에서만 선출하므로 데이터 손실 없음). 그러나 ISR이 다시 1로 줄어 min.insync=2 미달 → 쓰기 거부. 'B1이 죽기 전에 B2가 회복했어야' 했던 시나리오입니다. 운영 표준 설정의 의미: 1대까지 죽어도 무중단, 2대 이상 동시 장애는 안전 모드로 전환합니다."
+    }
+  ];
+
+  let cur = 0;
+
+  function renderBroker(prefix, data){
+    const dot = document.getElementById(prefix + "-dot");
+    const role = document.getElementById(prefix + "-role");
+    const label = document.getElementById(prefix + "-label");
+    const isrBadge = document.getElementById(prefix + "-isr");
+    const row = document.getElementById("row-" + prefix);
+
+    role.textContent = data.role;
+    label.textContent = data.label;
+
+    dot.className = "dot dot-" + (data.status === "ok" ? "ok" : data.status === "warn" ? "warn" : "danger");
+
+    row.className = "broker-row " + data.status;
+    if (data.role === "Leader") row.classList.add("leader");
+
+    isrBadge.className = "isr-badge " + (data.inIsr ? "in" : "out");
+    isrBadge.textContent = data.inIsr ? "in ISR" : "out of ISR";
+  }
+
+  function renderProducer(canWrite, msg){
+    const area = document.getElementById("producer-area");
+    area.innerHTML = "";
+    const box = document.createElement("div");
+    box.className = "producer-box " + (canWrite ? "ok" : "reject");
+    box.innerHTML = `<span style="font-weight:600">Producer (acks=all)</span><span class="arrow">${msg}</span>`;
+    area.appendChild(box);
+  }
+
+  function renderStep(){
+    const s = steps[cur];
+    document.getElementById("step-title").textContent = s.title;
+    document.getElementById("step-counter").textContent = `${cur+1} / ${steps.length}`;
+    document.getElementById("isr-list").textContent = "[" + s.isr.join(", ") + "]";
+    document.getElementById("isr-size").textContent = s.isr.length;
+    document.getElementById("explain").textContent = s.explain;
+
+    const insyncTag = document.getElementById("insync-tag");
+    const ok = s.isr.length >= 2;
+    insyncTag.className = "insync-tag " + (ok ? "ok" : "bad");
+    insyncTag.textContent = ok ? `min.insync=2 → ${s.isr.length}≥2 만족 ✓` : `min.insync=2 → ${s.isr.length}<2 미달 ❌`;
+
+    document.querySelectorAll(".step-pill").forEach((pill,i) => {
+      pill.classList.remove("active","done");
+      if (i < cur) pill.classList.add("done");
+      else if (i === cur) pill.classList.add("active");
+    });
+
+    renderBroker("b1", s.b1);
+    renderBroker("b2", s.b2);
+    renderBroker("b3", s.b3);
+    renderProducer(s.canWrite, s.producerMsg);
+
+    document.getElementById("prev-btn").disabled = cur === 0;
+    document.getElementById("next-btn").disabled = cur === steps.length - 1;
+  }
+
+  document.getElementById("prev-btn").addEventListener("click", () => { if (cur > 0){ cur--; renderStep(); } });
+  document.getElementById("next-btn").addEventListener("click", () => { if (cur < steps.length - 1){ cur++; renderStep(); } });
+
+  renderStep();
+})();
+</script>
+</body>
+</html>
