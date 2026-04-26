@@ -1,0 +1,191 @@
+<h2 class="sr-only">Kafka ISR 메시지 동기화 과정 단계별 시각화</h2>
+<style>
+.log-cell{display:flex;align-items:center;justify-content:center;width:38px;height:38px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-secondary);font-size:13px;font-weight:500;color:var(--color-text-secondary);transition:all .35s ease}
+.log-cell.filled{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.log-cell.committed{background:var(--color-background-success);color:var(--color-text-success);border-color:var(--color-border-success)}
+.log-cell.new{transform:scale(1.15)}
+.replica-row{display:flex;align-items:center;gap:10px;margin:10px 0}
+.replica-label{width:140px;font-size:13px;display:flex;flex-direction:column;gap:2px}
+.replica-label .role{font-weight:500;color:var(--color-text-primary)}
+.replica-label .name{color:var(--color-text-secondary);font-size:12px}
+.log-row{display:flex;gap:6px;flex:1}
+.leo-tag{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--color-background-secondary);color:var(--color-text-secondary);min-width:48px;text-align:center}
+.hw-marker{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--border-radius-md);background:var(--color-background-success);color:var(--color-text-success);font-size:12px;font-weight:500}
+.step-pill{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--color-background-secondary);color:var(--color-text-secondary);font-size:12px;font-weight:500;transition:all .2s}
+.step-pill.active{background:var(--color-text-info);color:var(--color-background-primary)}
+.step-pill.done{background:var(--color-background-success);color:var(--color-text-success)}
+.btn-nav{padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-primary);font-size:13px;cursor:pointer;transition:all .15s}
+.btn-nav:hover:not(:disabled){background:var(--color-background-secondary)}
+.btn-nav:disabled{opacity:.4;cursor:not-allowed}
+.producer-box{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);font-size:13px}
+</style>
+
+<div style="padding:1rem 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="step-pill" data-step="1">1</span>
+      <span class="step-pill" data-step="2">2</span>
+      <span class="step-pill" data-step="3">3</span>
+      <span class="step-pill" data-step="4">4</span>
+      <span class="step-pill" data-step="5">5</span>
+    </div>
+    <span id="step-title" style="font-size:14px;font-weight:500;color:var(--color-text-primary)"></span>
+  </div>
+
+  <div id="producer-area" style="margin-bottom:1.25rem;min-height:48px"></div>
+
+  <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem">
+    <div class="replica-row">
+      <div class="replica-label"><span class="role">Leader</span><span class="name">Broker 1 — P0</span></div>
+      <div class="log-row" id="leader-log"></div>
+      <span class="leo-tag" id="leader-leo">LEO 0</span>
+    </div>
+    <div class="replica-row">
+      <div class="replica-label"><span class="role">Follower A</span><span class="name">Broker 2 — P0</span></div>
+      <div class="log-row" id="followerA-log"></div>
+      <span class="leo-tag" id="followerA-leo">LEO 0</span>
+    </div>
+    <div class="replica-row">
+      <div class="replica-label"><span class="role">Follower B</span><span class="name">Broker 3 — P0</span></div>
+      <div class="log-row" id="followerB-log"></div>
+      <span class="leo-tag" id="followerB-leo">LEO 0</span>
+    </div>
+    <div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-secondary)">
+        <span>ISR:</span><span id="isr-list" style="font-weight:500;color:var(--color-text-primary)">[L, A, B]</span>
+      </div>
+      <span class="hw-marker">HW = <span id="hw-val">0</span> · 커밋된 오프셋까지 컨슈머 노출</span>
+    </div>
+  </div>
+
+  <div id="explain" style="margin-top:1rem;padding:12px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);font-size:13px;line-height:1.6;color:var(--color-text-primary);min-height:64px"></div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">
+    <button class="btn-nav" id="prev-btn">← 이전</button>
+    <span style="font-size:12px;color:var(--color-text-tertiary)" id="step-counter">1 / 5</span>
+    <button class="btn-nav" id="next-btn">다음 →</button>
+  </div>
+
+  <div style="margin-top:1.25rem;display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn-nav" onclick="sendPrompt('acks=0, acks=1, acks=all 옵션이 ISR과 어떻게 맞물리는지 설명해줘')">acks 옵션과의 관계 ↗</button>
+    <button class="btn-nav" onclick="sendPrompt('Follower가 느려져서 ISR에서 빠지는 시나리오를 시각화해줘')">ISR 축출 시나리오 ↗</button>
+    <button class="btn-nav" onclick="sendPrompt('min.insync.replicas 설정이 어떻게 동작하는지 알려줘')">min.insync.replicas ↗</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const LOG_SIZE = 7;
+  const steps = [
+    {
+      title: "초기 상태",
+      producer: "",
+      leader: 3, followerA: 3, followerB: 3,
+      hw: 3,
+      isr: ["L","A","B"],
+      explain: "세 레플리카 모두 오프셋 0~2를 보유하고 동기화된 상태입니다. LEO(Log End Offset)는 각 레플리카의 마지막 오프셋+1이고, HW(High Watermark)는 ISR 전원이 가진 가장 높은 오프셋이라 현재 3입니다. 컨슈머는 HW 미만(0~2)까지만 읽을 수 있습니다."
+    },
+    {
+      title: "Producer가 Leader에 메시지 전송",
+      producer: "send",
+      leader: 4, followerA: 3, followerB: 3,
+      hw: 3, newIdx: 3,
+      isr: ["L","A","B"],
+      explain: "Producer가 새 레코드를 Leader에게 보냈습니다. Leader는 자신의 로컬 로그에 즉시 추가(append)하고 LEO를 4로 올립니다. 단, 아직 복제가 안 됐으므로 HW는 그대로 3 — 컨슈머에게는 아직 안 보입니다."
+    },
+    {
+      title: "Follower들이 fetch 요청",
+      producer: "wait",
+      leader: 4, followerA: 4, followerB: 4,
+      hw: 3, newIdx: 3, newOnFollowers: true,
+      isr: ["L","A","B"],
+      explain: "Follower는 주기적으로 Leader에 fetch 요청을 보내 새 레코드를 가져갑니다. 두 Follower 모두 오프셋 3을 받아 LEO가 4가 되었지만, Leader는 아직 다음 fetch 요청을 받기 전이라 HW를 올리지 못합니다."
+    },
+    {
+      title: "Leader가 HW 갱신 (커밋)",
+      producer: "wait",
+      leader: 4, followerA: 4, followerB: 4,
+      hw: 4, committedIdx: 3,
+      isr: ["L","A","B"],
+      explain: "다음 fetch 요청에서 Follower들이 자신의 LEO=4를 알려옵니다. Leader는 ISR 전원의 LEO 중 최솟값으로 HW를 갱신 → HW=4. 이제 오프셋 3은 '커밋'된 상태가 되어 컨슈머가 읽을 수 있고, Producer에게 ack(acks=all 기준)이 응답됩니다."
+    },
+    {
+      title: "Producer에 ack 응답 완료",
+      producer: "ack",
+      leader: 4, followerA: 4, followerB: 4,
+      hw: 4, committedIdx: 3,
+      isr: ["L","A","B"],
+      explain: "acks=all 설정이면 이 시점에 비로소 Producer에게 성공 응답이 갑니다. ISR에 속한 모든 레플리카가 메시지를 보유하고 있으므로, 어느 한 브로커가 죽어도 데이터는 보존됩니다. min.insync.replicas=2면 ISR 크기가 2 미만으로 떨어질 때 쓰기가 실패하도록 강제할 수 있습니다."
+    }
+  ];
+
+  let cur = 0;
+
+  function renderLog(elId, leo, opts){
+    const el = document.getElementById(elId);
+    el.innerHTML = "";
+    for (let i = 0; i < LOG_SIZE; i++){
+      const cell = document.createElement("div");
+      cell.className = "log-cell";
+      if (i < leo){
+        cell.textContent = i;
+        cell.classList.add("filled");
+        if (opts.committedIdx !== undefined && i <= opts.committedIdx){
+          cell.classList.remove("filled");
+          cell.classList.add("committed");
+        }
+        if (opts.newIdx === i && opts.markNew){
+          cell.classList.add("new");
+        }
+      }
+      el.appendChild(cell);
+    }
+  }
+
+  function renderProducer(action){
+    const area = document.getElementById("producer-area");
+    if (!action){ area.innerHTML = ""; return; }
+    if (action === "send"){
+      area.innerHTML = `<div class="producer-box"><span style="font-weight:500;color:var(--color-text-info)">Producer</span><span style="color:var(--color-text-secondary)">→ send(record, offset 3) →</span><span style="color:var(--color-text-primary)">Leader</span></div>`;
+    } else if (action === "wait"){
+      area.innerHTML = `<div class="producer-box" style="opacity:.7"><span style="font-weight:500">Producer</span><span style="color:var(--color-text-secondary)">⏳ ack 대기 중 (acks=all)</span></div>`;
+    } else if (action === "ack"){
+      area.innerHTML = `<div class="producer-box" style="background:var(--color-background-success);color:var(--color-text-success)"><span style="font-weight:500">Producer</span><span>← ack(success) ←</span><span>Leader</span></div>`;
+    }
+  }
+
+  function renderStep(){
+    const s = steps[cur];
+    document.getElementById("step-title").textContent = s.title;
+    document.getElementById("step-counter").textContent = `${cur+1} / ${steps.length}`;
+    document.getElementById("hw-val").textContent = s.hw;
+    document.getElementById("isr-list").textContent = "[" + s.isr.join(", ") + "]";
+    document.getElementById("explain").textContent = s.explain;
+
+    document.querySelectorAll(".step-pill").forEach((pill,i) => {
+      pill.classList.remove("active","done");
+      if (i < cur) pill.classList.add("done");
+      else if (i === cur) pill.classList.add("active");
+    });
+
+    document.getElementById("leader-leo").textContent = `LEO ${s.leader}`;
+    document.getElementById("followerA-leo").textContent = `LEO ${s.followerA}`;
+    document.getElementById("followerB-leo").textContent = `LEO ${s.followerB}`;
+
+    const opts = { committedIdx: s.committedIdx, newIdx: s.newIdx };
+    renderLog("leader-log", s.leader, { ...opts, markNew: s.newIdx !== undefined });
+    renderLog("followerA-log", s.followerA, { ...opts, markNew: s.newOnFollowers });
+    renderLog("followerB-log", s.followerB, { ...opts, markNew: s.newOnFollowers });
+
+    renderProducer(s.producer);
+
+    document.getElementById("prev-btn").disabled = cur === 0;
+    document.getElementById("next-btn").disabled = cur === steps.length - 1;
+  }
+
+  document.getElementById("prev-btn").addEventListener("click", () => { if (cur > 0){ cur--; renderStep(); } });
+  document.getElementById("next-btn").addEventListener("click", () => { if (cur < steps.length - 1){ cur++; renderStep(); } });
+
+  renderStep();
+})();
+</script>
