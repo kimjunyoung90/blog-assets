@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kafka ISR 축출 시나리오 단계별 시각화</title>
+<style>
+:root{
+  --color-background-primary:#fff;
+  --color-background-secondary:#f5f5f2;
+  --color-text-primary:#1a1a1a;
+  --color-text-secondary:#555;
+  --color-text-tertiary:#aaa;
+  --color-border-secondary:#ddd;
+  --color-border-tertiary:#eee;
+  --color-background-info:#E6F1FB;
+  --color-text-info:#0C447C;
+  --color-border-info:#378ADD;
+  --color-background-success:#E1F5EE;
+  --color-text-success:#085041;
+  --color-border-success:#0F6E56;
+  --color-background-warning:#fef9ec;
+  --color-text-warning:#7a5800;
+  --color-background-danger:#FCEBEB;
+  --color-text-danger:#791F1F;
+  --border-radius-md:6px;
+  --border-radius-lg:8px;
+}
+body{font-family:sans-serif;background:var(--color-background-primary);color:var(--color-text-primary);padding:24px;max-width:900px;margin:0 auto}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.log-cell{display:flex;align-items:center;justify-content:center;width:34px;height:34px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-secondary);font-size:12px;font-weight:500;color:var(--color-text-secondary);transition:all .35s ease}
+.log-cell.filled{background:var(--color-background-info);color:var(--color-text-info);border-color:var(--color-border-info)}
+.log-cell.committed{background:var(--color-background-success);color:var(--color-text-success);border-color:var(--color-border-success)}
+.log-cell.missing{background:transparent;border-style:dashed;border-color:var(--color-border-tertiary);color:var(--color-text-tertiary)}
+.replica-row{display:flex;align-items:center;gap:10px;margin:10px 0;transition:opacity .3s}
+.replica-row.evicted{opacity:.55}
+.replica-label{width:150px;font-size:13px;display:flex;flex-direction:column;gap:2px}
+.replica-label .role{font-weight:500;color:var(--color-text-primary);display:flex;align-items:center;gap:6px}
+.replica-label .name{color:var(--color-text-secondary);font-size:12px}
+.log-row{display:flex;gap:5px;flex:1}
+.tag{font-size:11px;padding:2px 8px;border-radius:10px;background:var(--color-background-secondary);color:var(--color-text-secondary);min-width:54px;text-align:center;white-space:nowrap}
+.tag-warn{background:var(--color-background-warning);color:var(--color-text-warning)}
+.tag-danger{background:var(--color-background-danger);color:var(--color-text-danger)}
+.tag-ok{background:var(--color-background-success);color:var(--color-text-success)}
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+.dot-ok{background:var(--color-text-success)}
+.dot-warn{background:var(--color-text-warning)}
+.dot-danger{background:var(--color-text-danger)}
+.hw-marker{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:var(--border-radius-md);background:var(--color-background-success);color:var(--color-text-success);font-size:12px;font-weight:500}
+.step-pill{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--color-background-secondary);color:var(--color-text-secondary);font-size:12px;font-weight:500;transition:all .2s}
+.step-pill.active{background:var(--color-text-info);color:var(--color-background-primary)}
+.step-pill.done{background:var(--color-background-success);color:var(--color-text-success)}
+.btn-nav{padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:transparent;color:var(--color-text-primary);font-size:13px;cursor:pointer;transition:all .15s}
+.btn-nav:hover:not(:disabled){background:var(--color-background-secondary)}
+.btn-nav:disabled{opacity:.4;cursor:not-allowed}
+.lag-bar{height:6px;border-radius:3px;background:var(--color-background-secondary);overflow:hidden;flex:1;max-width:160px}
+.lag-fill{height:100%;transition:all .4s ease}
+</style>
+</head>
+<body>
+<h2 class="sr-only">Kafka ISR 축출 시나리오 단계별 시각화</h2>
+
+<div style="padding:1rem 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem">
+    <div style="display:flex;align-items:center;gap:8px">
+      <span class="step-pill" data-step="1">1</span>
+      <span class="step-pill" data-step="2">2</span>
+      <span class="step-pill" data-step="3">3</span>
+      <span class="step-pill" data-step="4">4</span>
+      <span class="step-pill" data-step="5">5</span>
+    </div>
+    <span id="step-title" style="font-size:14px;font-weight:500;color:var(--color-text-primary)"></span>
+  </div>
+
+  <div style="background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem">
+
+    <div class="replica-row" id="row-leader">
+      <div class="replica-label">
+        <span class="role"><span class="dot dot-ok"></span>Leader</span>
+        <span class="name">Broker 1</span>
+      </div>
+      <div class="log-row" id="leader-log"></div>
+      <span class="tag" id="leader-tag">LEO 5</span>
+    </div>
+
+    <div class="replica-row" id="row-A">
+      <div class="replica-label">
+        <span class="role"><span class="dot dot-ok" id="A-dot"></span>Follower A</span>
+        <span class="name">Broker 2 · 정상</span>
+      </div>
+      <div class="log-row" id="A-log"></div>
+      <span class="tag" id="A-tag">lag 0s</span>
+    </div>
+
+    <div class="replica-row" id="row-B">
+      <div class="replica-label">
+        <span class="role"><span class="dot" id="B-dot"></span>Follower B</span>
+        <span class="name" id="B-name">Broker 3</span>
+      </div>
+      <div class="log-row" id="B-log"></div>
+      <span class="tag" id="B-tag">lag 0s</span>
+    </div>
+
+    <div style="margin-top:14px;padding-top:12px;border-top:0.5px solid var(--color-border-tertiary)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:12px">
+        <span style="color:var(--color-text-secondary)">B의 lag (replica.lag.time.max.ms = 30s 기준)</span>
+        <div class="lag-bar"><div class="lag-fill" id="lag-fill" style="width:0%;background:var(--color-text-success)"></div></div>
+        <span id="lag-readout" style="color:var(--color-text-secondary);min-width:40px">0s</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-secondary)">
+          <span>ISR:</span><span id="isr-list" style="font-weight:500;color:var(--color-text-primary)">[L, A, B]</span>
+        </div>
+        <span class="hw-marker">HW = <span id="hw-val">5</span></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="explain" style="margin-top:1rem;padding:12px 14px;background:var(--color-background-secondary);border-radius:var(--border-radius-md);font-size:13px;line-height:1.65;color:var(--color-text-primary);min-height:84px"></div>
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:1rem">
+    <button class="btn-nav" id="prev-btn">← 이전</button>
+    <span style="font-size:12px;color:var(--color-text-tertiary)" id="step-counter">1 / 5</span>
+    <button class="btn-nav" id="next-btn">다음 →</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const LOG_SIZE = 9;
+  const steps = [
+    {
+      title: "정상 상태 — 모두 동기화됨",
+      leader: 5, A: 5, B: 5,
+      hw: 5, committed: 4,
+      isr: ["L","A","B"],
+      lag: 0, B_status: "ok", B_name: "Broker 3 · 정상",
+      explain: "세 레플리카 모두 오프셋 0~4를 보유, LEO=5로 일치합니다. ISR={L,A,B}이고 HW=5. 이 상태에서는 어느 한 브로커가 죽어도 데이터가 보존됩니다. Producer는 acks=all 응답을 정상적으로 받습니다."
+    },
+    {
+      title: "Producer가 새 메시지를 보냄",
+      leader: 8, A: 8, B: 6,
+      hw: 6, committed: 5, newOnAB: true,
+      isr: ["L","A","B"],
+      lag: 8, B_status: "warn", B_name: "Broker 3 · GC 발생",
+      explain: "오프셋 5, 6, 7이 새로 들어왔습니다. Leader와 Follower A는 즉시 따라잡았지만 Follower B는 GC 또는 디스크 지연 등으로 fetch가 느려져 오프셋 6까지만 받았습니다. HW는 ISR 전원의 LEO 최솟값이라 6에 머무릅니다 — 즉, 오프셋 6 이상은 아직 컨슈머에게 노출되지 않습니다."
+    },
+    {
+      title: "Follower B의 lag이 임계값 근처로",
+      leader: 8, A: 8, B: 6,
+      hw: 6, committed: 5,
+      isr: ["L","A","B"],
+      lag: 22, B_status: "warn", B_name: "Broker 3 · 응답 지연",
+      explain: "B는 여전히 오프셋 6에 멈춰 있고, 마지막으로 Leader를 따라잡은 시점에서 약 22초가 흘렀습니다. 한계(replica.lag.time.max.ms=30s)에 가까워지고 있습니다. 이 시간 동안 HW는 6에 묶여 있어 — 카프카 처리량 관점에서는 B 한 대 때문에 전체가 발이 묶인 상황입니다."
+    },
+    {
+      title: "임계값 초과 → ISR에서 축출",
+      leader: 8, A: 8, B: 6,
+      hw: 8, committed: 7,
+      isr: ["L","A"], evictB: true,
+      lag: 32, B_status: "danger", B_name: "Broker 3 · ISR 제외됨",
+      explain: "B가 30초 이상 따라잡지 못해 Controller가 ISR에서 축출했습니다. 이제 ISR={L, A}만 남고, HW 계산도 두 명만 참여 → HW가 즉시 8로 점프. 오프셋 6, 7이 한꺼번에 커밋되어 컨슈머에게 노출됩니다. 처리량은 회복됐지만 데이터 안전성은 떨어졌습니다 (현재 ISR 크기 2, 한 대 더 죽으면 위험)."
+    },
+    {
+      title: "ISR 크기 = 2, 안전성 vs 가용성 트레이드오프",
+      leader: 9, A: 9, B: 6,
+      hw: 9, committed: 8, newOnLA: true,
+      isr: ["L","A"], evictB: true,
+      lag: 35, B_status: "danger", B_name: "Broker 3 · 격리 상태",
+      explain: "이후 새 메시지(오프셋 8)도 L과 A 둘만 복제하면 즉시 커밋됩니다. min.insync.replicas=2면 OK지만, 만약 A까지 죽어 ISR이 1로 떨어지면 Producer의 acks=all 쓰기가 NotEnoughReplicas로 실패합니다. 카프카는 이렇게 '느린 한 대를 버려서 빠른 다수를 살리는' 전략으로 가용성을 유지합니다."
+    }
+  ];
+
+  let cur = 0;
+
+  function renderLog(elId, leo, opts){
+    const el = document.getElementById(elId);
+    el.innerHTML = "";
+    for (let i = 0; i < LOG_SIZE; i++){
+      const cell = document.createElement("div");
+      cell.className = "log-cell";
+      if (i < leo){
+        cell.textContent = i;
+        cell.classList.add("filled");
+        if (opts.committed !== undefined && i <= opts.committed){
+          cell.classList.remove("filled");
+          cell.classList.add("committed");
+        }
+      } else if (opts.showMissing && i < opts.maxLeo){
+        cell.classList.add("missing");
+        cell.textContent = i;
+      }
+      el.appendChild(cell);
+    }
+  }
+
+  function renderStep(){
+    const s = steps[cur];
+    document.getElementById("step-title").textContent = s.title;
+    document.getElementById("step-counter").textContent = `${cur+1} / ${steps.length}`;
+    document.getElementById("hw-val").textContent = s.hw;
+    document.getElementById("isr-list").textContent = "[" + s.isr.join(", ") + "]";
+    document.getElementById("explain").textContent = s.explain;
+
+    document.querySelectorAll(".step-pill").forEach((pill,i) => {
+      pill.classList.remove("active","done");
+      if (i < cur) pill.classList.add("done");
+      else if (i === cur) pill.classList.add("active");
+    });
+
+    document.getElementById("leader-tag").textContent = `LEO ${s.leader}`;
+    document.getElementById("A-tag").textContent = `LEO ${s.A}`;
+    document.getElementById("B-tag").textContent = `LEO ${s.B}`;
+
+    const maxLeo = Math.max(s.leader, s.A, s.B);
+    renderLog("leader-log", s.leader, { committed: s.committed });
+    renderLog("A-log", s.A, { committed: s.committed });
+    renderLog("B-log", s.B, { committed: s.committed, showMissing: true, maxLeo });
+
+    const Bdot = document.getElementById("B-dot");
+    Bdot.className = "dot dot-" + (s.B_status === "ok" ? "ok" : s.B_status === "warn" ? "warn" : "danger");
+    document.getElementById("B-name").textContent = s.B_name;
+
+    const Btag = document.getElementById("B-tag");
+    Btag.className = "tag " + (s.B_status === "ok" ? "tag-ok" : s.B_status === "warn" ? "tag-warn" : "tag-danger");
+    if (s.evictB) Btag.textContent = "축출됨";
+    else if (s.lag > 0) Btag.textContent = `lag ${s.lag}s · LEO ${s.B}`;
+    else Btag.textContent = `LEO ${s.B}`;
+
+    const rowB = document.getElementById("row-B");
+    rowB.classList.toggle("evicted", !!s.evictB);
+
+    const lagPct = Math.min(100, (s.lag / 30) * 100);
+    const lagFill = document.getElementById("lag-fill");
+    lagFill.style.width = lagPct + "%";
+    lagFill.style.background = s.lag < 15 ? "var(--color-text-success)" : s.lag < 28 ? "var(--color-text-warning)" : "var(--color-text-danger)";
+    document.getElementById("lag-readout").textContent = s.lag + "s";
+
+    document.getElementById("prev-btn").disabled = cur === 0;
+    document.getElementById("next-btn").disabled = cur === steps.length - 1;
+  }
+
+  document.getElementById("prev-btn").addEventListener("click", () => { if (cur > 0){ cur--; renderStep(); } });
+  document.getElementById("next-btn").addEventListener("click", () => { if (cur < steps.length - 1){ cur++; renderStep(); } });
+
+  renderStep();
+})();
+</script>
+</body>
+</html>
